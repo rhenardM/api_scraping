@@ -13,6 +13,17 @@ security:
             lazy: true
             provider: users_in_memory
 
+        # acces avec authentification
+
+        # json_article:
+        #     json_login:
+        #         check_path: api_article
+
+        # acces sans authentification
+        json_article:
+            pattern: ^/api/article
+            security: false
+
             # activate different ways to authenticate
             # https://symfony.com/doc/current/security.html#the-firewall
 
