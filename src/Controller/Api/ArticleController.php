@@ -2,101 +2,92 @@
 
 namespace App\Controller\Api;
 
-use Doctrine\ORM\EntityManagerInterface;
 use App\Entity\Article;
+use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\DomCrawler\Crawler;
 use Symfony\Component\HttpClient\HttpClient;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Annotation\Route;
-use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
-use Symfony\Bundle\FrameworkBundle\Controller\Controller;
+use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
+use Summarizer\Summarizer;
 
-
-
-// class ArticleController extends AbstractController
-// {
-//     private $entityManager;
-
-//     public function __construct(EntityManagerInterface $entityManager)
-//     {
-//         $this->entityManager = $entityManager;
-//     }
-    
-//     #[Route('/api/article', name:'api_article', methods:['GET', 'POST'])]
-//     public function ApiArticle()
-//     {
-//         $httpClient = HttpClient::create();
-//         $response = $httpClient->request('GET', 'https://exemple.com');
-        
-//         $content = $response->getContent();
-//         $crawler = new Crawler($content);
-
-//         $title = $crawler->filter('h1')->text();
-//         $content = $crawler->filter(' .article-content')->text();
-//         $image = $crawler->filter('img')->attr('src');
-        
-//         // Enregistrement de l'article dans la base de donné
-//         $article = new Article();
-//         $article->setTitle($title);
-//         $article->setContent($content);
-//         $article->setImage($image);
-
-//         $entityManager = $this->entityManager;
-//         $entityManager->persist($article);
-//         $entityManager->flush();
-
-//         return new JsonResponse(['message' => 'Article scraping and saved successfully']);
-        
-//     }
-// }
 class ArticleController extends AbstractController
 {
+    public function generateSummary($content, $maxLength = 100)
+    {
+        $content = strip_tags($content);
+        $content = preg_replace('/\s+/', ' ', $content);
+
+        if (strlen($content) > $maxLength) {
+            $content = substr($content, 0, $maxLength);
+            $lastSpacePos = strrpos($content, ' ');
+            if ($lastSpacePos !== false) {
+                $content = substr($content, 0, $lastSpacePos);
+            }
+            $content .= '...';
+        }
+
+        return $content;
+    }
+
     private $entityManager;
 
-    public function __construct(EntityManagerInterface $entityManager)
-    {
-        $this->entityManager = $entityManager;
-    }
-    
+        public function __construct(EntityManagerInterface $entityManager)
+        {
+            $this->entityManager = $entityManager;
+        }
+        
     #[Route('/api/article', name: 'api_article', methods: ['GET', 'POST'])]
     public function ApiArticle()
     {
         try {
-            $httpClient = HttpClient::create();
-            $response = $httpClient->request('GET', 'https://www.mediacongo.net/articles.html');
-            $response = $httpClient->request('GET', 'https://fr.wikipedia.org/wiki/Article_de_presse');
-            $response = $httpClient->request('GET', 'https://www.radiookapi.net/');
-            
-            $content = $response->getContent();
-            $crawler = new Crawler($content);
+    $urls = [
+        'https://www.radiookapi.net/politique',
+        'https://fr.wikipedia.org/wiki/Article_de_presse',
+        'https://www.radiookapi.net/'
+    ];
 
-            $titleNode = $crawler->filter('h1');
-            $contentNode = $crawler->filter('.article-content');
-            $imageNode = $crawler->filter('img');
-            
-            // Vérifier si les nœuds sont vides
-            if ($titleNode->count() === 0 || $contentNode->count() === 0 || $imageNode->count() === 0) {
-                throw new \Exception('Aucun élément trouvé en fonction du sélecteur spécifié.');
+    $httpClient = HttpClient::create();
+
+    foreach ($urls as $url) {
+        $response = $httpClient->request('GET', $url);
+        $content = $response->getContent();
+
+        $crawler = new Crawler($content);
+
+        $articles = $crawler->filter('#main-content .post');
+
+        foreach ($articles as $article) {
+            $articleCrawler = new Crawler($article); 
+
+            $titleElement = $articleCrawler->filter('h1.entry-title a');
+            $contentElement = $articleCrawler->filter('.entry-content');
+            $imageElement = $articleCrawler->filter('img.attachment-post-thumbnail');
+
+            if ($titleElement->count() > 0 && $contentElement->count() > 0 && $imageElement->count() > 0) {
+                $title = $titleElement->text();
+                $content = $contentElement->text();
+                $image = $imageElement->attr('src');
+
+                // Générer un résumé automatique
+                $summary = $this->generateSummary($content);
+
+                // Enregistrement dans la base de données avec le résumé automatique
+                $articleEntity = new Article();
+                $articleEntity->setTitle($title);
+                $articleEntity->setContent($content);
+                $articleEntity->setImage($image);
+                $articleEntity->setSummary($summary);
+
+                $this->entityManager->persist($articleEntity);
             }
+        }                
+    }
 
-            $title = $titleNode->text();
-            $content = $contentNode->text();
-            $image = $imageNode->attr('src');
-            
-            // Enregistrement de l'article dans la base de données
-            $article = new Article();
-            $article->setTitle($title);
-            $article->setContent($content);
-            $article->setImage($image);
-
-            $entityManager = $this->entityManager;
-            $entityManager->persist($article);
-            $entityManager->flush();
-
-            return new JsonResponse(['message' => 'Article scraping and saved successfully']);
+    $this->entityManager->flush();
+            return new JsonResponse(['message' => 'Articles récupérés et enregistrés avec succès']);
         } catch (\Exception $e) {
-            // Gestion de l'erreur
             return new JsonResponse(['error' => $e->getMessage()], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
     }
