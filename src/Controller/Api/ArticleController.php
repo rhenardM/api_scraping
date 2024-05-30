@@ -10,10 +10,19 @@ use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Annotation\Route;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
-//use Summarizer\Summarizer;
+use Psr\Log\LoggerInterface;
 
 class ArticleController extends AbstractController
 {
+    private $entityManager;
+    private $logger;
+
+    public function __construct(EntityManagerInterface $entityManager, LoggerInterface $logger)
+    {
+        $this->entityManager = $entityManager;
+        $this->logger = $logger;
+    }
+
     public function generateSummary($content, $maxLength = 100)
     {
         $content = strip_tags($content);
@@ -31,63 +40,58 @@ class ArticleController extends AbstractController
         return $content;
     }
 
-    private $entityManager;
-
-        public function __construct(EntityManagerInterface $entityManager)
-        {
-            $this->entityManager = $entityManager;
-        }
-        
     #[Route('/api/article', name: 'api_article', methods: ['GET', 'POST'])]
     public function ApiArticle()
     {
         try {
-    $urls = [
-        'https://www.radiookapi.net/politique',
-        'https://fr.wikipedia.org/wiki/Article_de_presse',
-        'https://www.radiookapi.net/'
-    ];
+            $urls = [
+                'https://www.radiookapi.net/politique',
+                'https://fr.wikipedia.org/wiki/Article_de_presse',
+                'https://www.radiookapi.net/'
+            ];
 
-    $httpClient = HttpClient::create();
+            $httpClient = HttpClient::create();
 
-    foreach ($urls as $url) {
-        $response = $httpClient->request('GET', $url);
-        $content = $response->getContent();
+            foreach ($urls as $url) {
+                $response = $httpClient->request('GET', $url);
+                $content = $response->getContent();
 
-        $crawler = new Crawler($content);
+                $crawler = new Crawler($content);
 
-        $articles = $crawler->filter('#main-content .post');
+                $articles = $crawler->filter('#main-content .post');
 
-        foreach ($articles as $article) {
-            $articleCrawler = new Crawler($article); 
+                foreach ($articles as $article) {
+                    $articleCrawler = new Crawler($article);
 
-            $titleElement = $articleCrawler->filter('h1.entry-title a');
-            $contentElement = $articleCrawler->filter('.entry-content');
-            $imageElement = $articleCrawler->filter('img.attachment-post-thumbnail');
+                    $titleElement = $articleCrawler->filter('h1.entry-title a');
+                    $contentElement = $articleCrawler->filter('.entry-content');
+                    $imageElement = $articleCrawler->filter('img.attachment-post-thumbnail');
 
-            if ($titleElement->count() > 0 && $contentElement->count() > 0 && $imageElement->count() > 0) {
-                $title = $titleElement->text();
-                $content = $contentElement->text();
-                $image = $imageElement->attr('src');
+                    if ($titleElement->count() > 0 && $contentElement->count() > 0 && $imageElement->count() > 0) {
+                        $title = $titleElement->text();
+                        $content = $contentElement->text();
+                        $image = $imageElement->attr('src');
 
-                // Générer un résumé automatique
-                $summary = $this->generateSummary($content);
+                        // Générer un résumé automatique
+                        $summary = $this->generateSummary($content);
 
-                // Enregistrement dans la base de données avec le résumé automatique
-                $articleEntity = new Article();
-                $articleEntity->setTitle($title);
-                $articleEntity->setContent($content);
-                $articleEntity->setImage($image);
-                $articleEntity->setSummary($summary);
+                        // Enregistrement dans la base de données avec le résumé automatique
+                        $articleEntity = new Article();
+                        $articleEntity->setTitle($title);
+                        $articleEntity->setContent($content);
+                        $articleEntity->setImage($image);
+                        $articleEntity->setSummary($summary);
 
-                $this->entityManager->persist($articleEntity);
+                        $this->entityManager->persist($articleEntity);
+                    }
+                }
             }
-        }                
-    }
 
-    $this->entityManager->flush();
+            $this->entityManager->flush();
+            $this->logger->info('Articles récupérés et enregistrés avec succès');
             return new JsonResponse(['message' => 'Articles récupérés et enregistrés avec succès']);
         } catch (\Exception $e) {
+            $this->logger->error('Erreur lors de la récupération ou de l\'enregistrement des articles: ' . $e->getMessage());
             return new JsonResponse(['error' => $e->getMessage()], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
     }
