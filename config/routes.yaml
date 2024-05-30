@@ -1,3 +1,7 @@
 controllers:
     resource: ../src/Controller/
     type: attribute
+api_article:
+    path: /api/article
+    controller: App\Controller\Api\ArticleController::ApiArticle
+    methods: GET|POST
